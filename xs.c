@@ -1,6 +1,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -44,6 +45,7 @@ typedef union {
         /* capacity is always a power of 2 (unsigned)-1 */
         capacity : 6;
     /* the last 4 bits are important flags */
+    int *refcnt;
   };
 } xs;
 
@@ -121,14 +123,21 @@ static inline xs *xs_free(xs *x) {
 
 xs *xs_copy(xs *dest, xs *src) {
   if (xs_is_ptr(src)) {
+    printf("Data on heap\n");
     dest->is_ptr = true;
     dest->ptr = src->ptr;
-    dest->flag1 = 1;
     dest->size = xs_size(src);
+    if (!src->refcnt) {
+      dest->refcnt = src->refcnt = (int *)malloc(sizeof(int));
+      *(dest->refcnt) = 1;
+    } else {
+      dest->refcnt = src->refcnt;
+      *(dest->refcnt) += 1;
+    }
   } else {
+    printf("Data on stack\n");
     memcpy(dest->data, src->data, 16);
     dest->is_ptr = false;
-    dest->flag1 = 0;
     dest->space_left = 15 - xs_size(src);
   }
   return dest;
@@ -152,7 +161,15 @@ xs *xs_concat(xs *string, const xs *prefix, const xs *suffix) {
     memcpy(tmpdata + pres, data, size);
     memcpy(tmpdata, pre, pres);
     memcpy(tmpdata + pres + size, suf, sufs + 1);
-    xs_free(string);
+    if (string->refcnt && *(string->refcnt) > 0) {
+      *(string->refcnt) -= 1;
+      if (*(string->refcnt) == 0) {
+        free(string->refcnt);
+        string->refcnt = NULL;
+      }
+    } else {
+      xs_free(string);
+    }
     *string = tmps;
     string->size = size + pres + sufs;
   }
@@ -185,6 +202,14 @@ xs *xs_trim(xs *x, const char *trimset) {
   dataptr += i;
   slen -= i;
 
+  if (x->refcnt && *(x->refcnt) > 0) {
+    x->ptr = orig = (char *)malloc(sizeof(char) * strlen(x->ptr) + 1);
+    *(x->refcnt) -= 1;
+    if (*(x->refcnt) == 0) {
+      free(x->refcnt);
+      x->refcnt = NULL;
+    }
+  }
   /* reserved space as a buffer on the heap.
    * Do not reallocate immediately. Instead, reuse it as possible.
    * Do not shrink to in place if < 16 bytes.
@@ -231,14 +256,20 @@ int main() {
 
   /* xs_copy */
   xs copy;
-  string = *xs_tmp("foo kevin");
+  string = *xs_tmp("foobarbar");
   prefix = *xs_tmp("(((((");
   suffix = *xs_tmp(")))))");
 
+  xs_concat(&string, &prefix, &suffix);
   xs_copy(&copy, &string);
+  printf("\nBefore trim\n");
   printf("[%s], %2zu\n", xs_data(&string), xs_size(&string));
   printf("[%s], %2zu\n", xs_data(&copy), xs_size(&copy));
-  printf("string %p\ncopy   %p", string.ptr, copy.ptr);
+  printf("string %p\ncopy   %p\n", xs_data(&string), xs_data(&copy));
+  xs_trim(&copy, "\n ");
+  printf("\nAfter trim\n");
+  printf("[%s], %2zu\n", xs_data(&copy), xs_size(&copy));
+  printf("string %p\ncopy   %p\n", xs_data(&string), xs_data(&copy));
 
   return 0;
 }

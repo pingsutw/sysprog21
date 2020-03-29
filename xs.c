@@ -120,7 +120,6 @@ static inline xs *xs_free(xs *x) {
     free(xs_data(x));
   return xs_newempty(x);
 }
-
 xs *xs_copy(xs *dest, xs *src) {
   if (xs_is_ptr(src)) {
     printf("Data on heap\n");
@@ -141,6 +140,30 @@ xs *xs_copy(xs *dest, xs *src) {
     dest->space_left = 15 - xs_size(src);
   }
   return dest;
+}
+char *xs_strtok(xs *x, const char *delim) {
+  char static *lastToken = NULL;
+  char *tmp = NULL;
+  char *str = NULL;
+  if (x == NULL) {
+    str = lastToken;
+    if (str == NULL)
+      return NULL;
+  } else {
+    str = xs_data(x);
+    str += strspn(str, delim);
+  }
+
+  /* Find end of segment */
+  tmp = strpbrk(str, delim);
+  if (tmp) {
+    *tmp = '\0';
+    lastToken = tmp + 1;
+  } else {
+    lastToken = NULL;
+  }
+
+  return str;
 }
 
 xs *xs_concat(xs *string, const xs *prefix, const xs *suffix) {
@@ -270,6 +293,17 @@ int main() {
   printf("\nAfter trim\n");
   printf("[%s], %2zu\n", xs_data(&copy), xs_size(&copy));
   printf("string %p\ncopy   %p\n", xs_data(&string), xs_data(&copy));
+
+  /* xs_strtok */
+  char delim[8] = "- ", *tmp;
+  string = *xs_tmp("foo-bar-bar");
+  printf("\nBefore xs_strtok \n");
+  printf("[%s], %2zu\n", xs_data(&string), xs_size(&string));
+  printf("delim = %s\n", delim);
+
+  printf("%s\n", xs_strtok(&string, delim));
+  while (tmp = xs_strtok(NULL, delim))
+    printf("%s\n", tmp);
 
   return 0;
 }
